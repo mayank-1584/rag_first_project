@@ -1,0 +1,105 @@
+# 🚀 Deployment Guide
+
+This turns `rag_first_project` into a self-hosted, Dockerized web app with a
+Streamlit chat UI, a fixed admin-managed knowledge base, and no user accounts.
+
+## What changed from the original project
+
+| File | Change |
+|---|---|
+| `streamlit_app.py` | **New.** Chat UI: ask questions, see answers + cited source chunks. |
+| `src/search.py` | **Fixed.** Reads `GROQ_API_KEY` from env instead of a hardcoded empty string. Fixed a broken import (`from data_loader` → `from src.data_loader`). Added `search_with_sources()` so the UI can show citations. |
+| `src/vectorstore.py`, `src/embedding.py`, `src/data_loader.py` | Unchanged — your original implementation, it was solid. |
+| `scripts/build_index.py` | **New.** Admin CLI to (re)build the FAISS index from `data/`, decoupled from the running app so the web server doesn't rebuild the index on every restart. |
+| `requirements.txt` | **Cleaned.** Removed `chromadb`, `typesense`, `langgraph`, `langchain_openai` — none were actually used in code, they were just bloating the image. Added `streamlit`. |
+| `Dockerfile`, `docker-compose.yml`, `.dockerignore` | **New.** Production container setup. |
+| `.env.example` | **New.** Documents the one required secret: `GROQ_API_KEY`. |
+
+## Architecture
+
+```
+Browser ──► Streamlit UI (port 8501)
+                │
+                ├── src/search.py (RAGSearch)
+                │     ├── src/vectorstore.py ─► faiss_store/ (FAISS index, persisted volume)
+                │     └── langchain_groq (ChatGroq)  ─► Groq API (LLM answer generation)
+                │
+                └── data/  (admin-managed source PDFs — mounted volume)
+```
+
+- **Knowledge base is fixed**: only you (the admin) add files to `data/` and
+  re-run the index build. End users can only ask questions, not upload files.
+- **No auth**: it's a single shared app, as requested. If you later expose
+  this beyond a trusted network, put it behind a reverse proxy with basic
+  auth (see "Optional hardening" below).
+
+## 1. Get a Groq API key
+
+Sign up at [console.groq.com](https://console.groq.com/keys) and grab a free
+API key — this is what powers answer generation.
+
+## 2. Configure environment
+
+```bash
+cp .env.example .env
+# then edit .env and paste in your key:
+# GROQ_API_KEY=gsk_...
+```
+
+## 3. Add your documents
+
+Drop PDFs (also supports `.txt`, `.csv`, `.xlsx`, `.docx`, `.json`) into `data/`.
+
+## 4. Build the FAISS index
+
+Do this once, and again any time `data/` changes:
+
+```bash
+docker compose build
+docker compose run --rm rag-app python scripts/build_index.py
+```
+
+This writes `faiss_store/faiss.index` and `faiss_store/metadata.pkl` to your
+host machine (via the mounted volume), so it survives container restarts.
+
+> Your repo already has a committed `faiss_store/`, so this step is optional
+> unless you're adding new documents.
+
+## 5. Run it
+
+```bash
+docker compose up -d
+```
+
+Visit **`http://<your-server-ip>:8501`**.
+
+Check logs:
+```bash
+docker compose logs -f
+```
+
+Stop it:
+```bash
+docker compose down
+```
+
+## Updating the knowledge base later
+
+```bash
+# 1. Add/remove files in data/
+# 2. Rebuild the index
+docker compose run --rm rag-app python scripts/build_index.py
+# 3. Restart the app so it picks up the new index
+docker compose restart
+```
+
+## Optional hardening for a real production server
+
+- **Reverse proxy + HTTPS**: put Nginx or Caddy in front of port 8501 and
+  terminate TLS there (Caddy makes this a 3-line config with auto HTTPS).
+- **Basic auth**: if you want a login wall without building real auth,
+  add HTTP basic auth at the reverse-proxy layer.
+- **Resource limits**: add `deploy.resources.limits` to `docker-compose.yml`
+  if running alongside other services on the same box.
+- **Log rotation**: Docker's default `json-file` driver grows unbounded —
+  set `logging.options.max-size` in `docker-compose.yml` for long-running deployments.

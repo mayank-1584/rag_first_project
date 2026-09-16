@@ -116,12 +116,10 @@ print("Summary:", summary)
 
 ---
 
-## 🛣️ Roadmap / Ideas for Next Steps
+## review
 
-- [ ] Add a simple CLI or Streamlit UI for interactive querying
-- [ ] Support chunk-level source citations in the summary output
-- [ ] Add evaluation metrics (retrieval precision@k)
-- [ ] Swap in different embedding models for comparison
+![Screenshot](./images/streamlit.png)
+(./images/git.png)
 
 ---
 
