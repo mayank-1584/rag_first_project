@@ -119,7 +119,7 @@ print("Summary:", summary)
 ## review
 
 ![Screenshot](./images/streamlit.png)
-![Screenshot]((./images/git.png))
+![Screenshot](./images/git.png)
 
 
 ---
